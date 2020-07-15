@@ -305,6 +305,7 @@ async def save_params_to_file_ids(operation, operator, file_updates_with_task, p
                     if modify_original:
                         original_params[file_update[0]] = "{}{}.{}".format(filename, count, extension)
                     count += 1
+                os.makedirs(os.path.dirname(path), exist_ok=True)
                 code_file = open(path, "wb")
                 code = base64.b64decode( params[file_update[0]])
                 code_file.write( code )
@@ -355,7 +356,7 @@ async def add_command_attack_to_task(task, command):
                 # we need to swap out temp_string's replace_string with task's params value
                 if artifact.replace_string != "":
                     temp_string = temp_string.replace(artifact.replace_string, str(task.params))
-            await db_objects.create(db_model.TaskArtifact, task=task, artifact_template=artifact, artifact_instance=temp_string)
+            await db_objects.create(db_model.TaskArtifact, task=task, artifact_template=artifact, artifact_instance=temp_string, host=task.callback.host)
 
     except Exception as e:
         logger.exception(str(sys.exc_info()[-1].tb_lineno) + " " + str(e))
@@ -376,6 +377,7 @@ async def rabbit_heartbeat_callback(message: aio_pika.IncomingMessage):
                 profile = await db_objects.get(query, name=pieces[2])
                 if profile.last_heartbeat < datetime.datetime.utcnow() + datetime.timedelta(seconds=-30) or not profile.container_running:
                     profile.running = False  # container just started, clearly the inner service isn't running
+                    #print("setting running to false")
                 profile.container_running = True
                 profile.last_heartbeat = datetime.datetime.utcnow()
                 await db_objects.update(profile)
@@ -389,7 +391,7 @@ async def rabbit_heartbeat_callback(message: aio_pika.IncomingMessage):
                 # now send updated PT code to everybody
                 transform_code = open("./app/api/transforms/transforms.py", 'rb').read()
                 await send_pt_rabbitmq_message("*", "load_transform_code",
-                                               base64.b64encode(transform_code).decode('utf-8'))
+                                               base64.b64encode(transform_code).decode('utf-8'), "")
         except Exception as e:
             logger.exception("Exception in rabbit_heartbeat_callback: {}, {}".format(pieces, str(e)))
             # print("Exception in rabbit_heartbeat_callback: {}, {}".format(pieces, str(e)))
@@ -421,10 +423,7 @@ async def connect_and_consume_c2():
             # get a random queue that only the apfell server will use to listen on to catch all heartbeats
             queue = await channel.declare_queue('', exclusive=True)
             # bind the queue to the exchange so we can actually catch messages
-            await queue.bind(exchange='apfell_traffic', routing_key="c2.status.*.stopped")
-            await queue.bind(exchange='apfell_traffic', routing_key="c2.status.*.running")
-            await queue.bind(exchange='apfell_traffic', routing_key="c2.status.*.running.start")
-            await queue.bind(exchange='apfell_traffic', routing_key="c2.status.*.stopped.stop")
+            await queue.bind(exchange='apfell_traffic', routing_key="c2.status.#")
 
             await channel.set_qos(prefetch_count=50)
             logger.info(' [*] Waiting for messages in connect_and_consume_c2.')
@@ -455,12 +454,13 @@ async def connect_and_consume_pt():
             # get a random queue that only the apfell server will use to listen on to catch all heartbeats
             queue = await channel.declare_queue('', exclusive=True)
             # bind the queue to the exchange so we can actually catch messages
-            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.create_payload_with_code.#")
-            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.create_external_payload.#")
-            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.load_transform_code.#")
-            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.command_transform.#")
-            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.load_transform_with_code.#")
-            await channel.set_qos(prefetch_count=20)
+            await queue.bind(exchange='apfell_traffic', routing_key="pt.status.#")
+            #await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.create_payload_with_code.#")
+            #await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.create_external_payload.#")
+            #await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.load_transform_code.#")
+            #await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.command_transform.#")
+            #await queue.bind(exchange='apfell_traffic', routing_key="pt.status.*.load_transform_with_code.#")
+            await channel.set_qos(prefetch_count=50)
             logger.info(' [*] Waiting for messages in connect_and_consume_pt.')
             try:
                 task = queue.consume(rabbit_pt_callback)
@@ -503,7 +503,7 @@ async def connect_and_consume_heartbeats():
         await asyncio.sleep(2)
 
 
-async def send_c2_rabbitmq_message(name, command, message_body):
+async def send_c2_rabbitmq_message(name, command, message_body, username):
     try:
         connection = await aio_pika.connect(host="127.0.0.1",
                                             login="apfell_user",
@@ -518,7 +518,7 @@ async def send_c2_rabbitmq_message(name, command, message_body):
         )
         # Sending the message
         await exchange.publish(
-            message, routing_key="c2.modify.{}.{}".format(name, command)
+            message, routing_key="c2.modify.{}.{}.{}".format(name, command, base64.b64encode(username.encode()).decode('utf-8'))
         )
         await connection.close()
         return {"status": "success"}
@@ -528,7 +528,7 @@ async def send_c2_rabbitmq_message(name, command, message_body):
         return {"status": 'error', 'error': "Failed to connect to rabbitmq, refresh"}
 
 
-async def send_pt_rabbitmq_message(payload_type, command, message_body):
+async def send_pt_rabbitmq_message(payload_type, command, message_body, username):
     try:
         connection = await aio_pika.connect(host="127.0.0.1",
                                             login="apfell_user",
@@ -543,7 +543,7 @@ async def send_pt_rabbitmq_message(payload_type, command, message_body):
         )
         # Sending the message
         await exchange.publish(
-            message, routing_key="pt.task.{}.{}".format(payload_type, command)
+            message, routing_key="pt.task.{}.{}.{}".format(payload_type, command, base64.b64encode(username.encode()).decode('utf-8'))
         )
         await connection.close()
         return {"status": "success"}

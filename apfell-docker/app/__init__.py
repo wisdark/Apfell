@@ -10,7 +10,6 @@ import json
 # -------------------------------------------
 # --------------------------------------------
 # -------- CONFIGURE SETTINGS HERE -----------
-db_pass = 'super_secret_apfell_user_password'
 server_ip = '192.168.205.151'  # this will be used by the browser to callback here
 listen_port = '80'
 listen_ip = '0.0.0.0'  # IP to bind to for the server, 0.0.0.0 means all local IPv4 addresses
@@ -19,16 +18,18 @@ ssl_key_path = './app/ssl/apfell-ssl.key'
 whitelisted_ip_blocks = ['0.0.0.0/0']  # only allow connections from these IPs to the /login and /register pages
 use_ssl = False
 server_header = "nginx 1.2"
-log_size = 0  # grows indefinitely, or specify a max size in Bytes
+log_size = 1024000  # grows indefinitely (0), or specify a max size in Bytes (1MB). If 0, will not rotate!
 keep_logs = True  # set to false for speed improvement, but no logs will be kept
 # --------------------------------------------
 # --------------------------------------------
 # --------------------------------------------
 db_name = 'apfell_db'
 db_user = 'apfell_user'
+db_pass = 'super_secret_apfell_user_password'
+max_log_count = 1  # if log_size > 0, rotate and make a max of max_log_count files to hold logs
 # custom loop to pass to db manager
 dbloop = uvloop.new_event_loop()
-apfell_db = PooledPostgresqlExtDatabase(db_name, user=db_user, password=db_pass, host='127.0.0.1', max_connections=1000, register_hstore=False)
+apfell_db = PooledPostgresqlExtDatabase(db_name, user=db_user, password=db_pass, host='127.0.0.1', max_connections=10000, register_hstore=False)
 apfell_db.connect_async(loop=dbloop)
 db_objects = Manager(apfell_db, loop=dbloop)
 
@@ -65,7 +66,7 @@ apfell_logging['handlers']['rotating_log'] = {
     "formatter": "apfell_format",
     "filename": "apfell_access.log",
     "maxBytes": log_size,
-    "backupCount": 0
+    "backupCount": max_log_count
 }
 apfell_logging['formatters']['apfell_format'] = {
     "()": AccessLogFormatter
@@ -76,7 +77,7 @@ apfell_logging['handlers']['rotating_root_log'] = {
     "formatter": "apfell_root_format",
     "filename": "apfell_access.log",
     "maxBytes": log_size,
-    "backupCount": 0
+    "backupCount": max_log_count
 }
 apfell_logging['formatters']['apfell_root_format'] = {
     "()": RootLogFormatter

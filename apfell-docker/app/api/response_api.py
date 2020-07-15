@@ -257,7 +257,7 @@ async def post_agent_response(agent_message):
                                     base_artifact = await db_objects.create(Artifact, name=artifact['base_artifact'], description="Auto created from task {}".format(task.id))
                                 # you can report back multiple artifacts at once, no reason to make separate C2 requests
                                 await db_objects.create(TaskArtifact, task=task, artifact_instance=str(artifact['artifact']),
-                                                        artifact=base_artifact)
+                                                        artifact=base_artifact, host=task.callback.host)
                                 final_output += "\nAdded artifact {}".format(str(artifact['artifact']))
                                 json_return_info = {**json_return_info, "status": "success"}
                             except Exception as e:
@@ -266,7 +266,7 @@ async def post_agent_response(agent_message):
                         parsed_response.pop('artifacts', None)
                     if 'credentials' in parsed_response and str(parsed_response['credentials']) != "":
                         for cred in parsed_response['credentials']:
-                            cred['task'] = task.id
+                            cred['task'] = task
                             new_cred_status = await create_credential_func(task.operator, callback.operation, cred)
                             if new_cred_status['status'] == "success":
                                 final_output += "\nAdded credential for {}".format(cred['user'])

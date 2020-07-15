@@ -195,7 +195,7 @@ async def get_all_tasks_by_callback_in_current_operation(request, user):
     return json({'status': 'success', 'output': output})
 
 
-async def get_agent_tasks(data, cid):
+async def get_agent_tasks(data, callback):
     # { INPUT
     #    "action": "get_tasking",
     #    "tasking_size": 1, //indicate the maximum number of tasks you want back
@@ -210,14 +210,6 @@ async def get_agent_tasks(data, cid):
     #       }
     #    ]
     # }
-    try:
-        query = await db_model.callback_query()
-        callback = await db_objects.get(query, agent_callback_id=cid)
-        # get delegate messages if needed
-        # await get_routable_messages(callback, callback.operation)
-    except Exception as e:
-        logger.exception("Failed to get callback in get_agent_tasks: " + cid)
-        return {"action": "get_tasking", "tasks": []}
     if 'tasking_size' not in data:
         data['tasking_size'] = 1
     tasks = []
@@ -250,10 +242,10 @@ async def get_agent_tasks(data, cid):
                 exit_command = await db_objects.get(query, is_exit=True, payload_type=callback.registered_payload.payload_type)
                 tasks.append({"command": exit_command.cmd, "parameters": "", "id": "", "timestamp": 0})
             except Exception as e:
-                logger.exception("Got a tasking request from a callback associated with a completed operation: " + cid)
+                logger.exception("Got a tasking request from a callback associated with a completed operation: " + callback.id)
                 tasks = []
     except Exception as e:
-        logger.exception("Error in getting tasking for : " + cid + ", " + str(e))
+        logger.exception("Error in getting tasking for : " + callback.id + ", " + str(e))
         tasks = []
     return {"action": "get_tasking", "tasks": tasks}
 
@@ -483,7 +475,7 @@ async def add_task_to_callback_func(data, cid, user, op, operation, cb, test_sta
                                                         "command_transform.{}".format(task.id),
                                                         base64.b64encode(
                                                             js.dumps(rabbit_message).encode()
-                                                        ).decode('utf-8'))
+                                                        ).decode('utf-8'), user['username'])
             elif payload_type.external:
                 # if the payload type is external, we can use the generic 'external' container for transforms
                 # by default tasks are created in a preprocessing state,
@@ -500,7 +492,7 @@ async def add_task_to_callback_func(data, cid, user, op, operation, cb, test_sta
                                                         "command_transform.{}".format(task.id),
                                                         base64.b64encode(
                                                             js.dumps(rabbit_message).encode()
-                                                        ).decode('utf-8'))
+                                                        ).decode('utf-8'), user['username'])
             else:
                 return {"status": "error",
                         'error': 'payload\'s container not running, no heartbeat in over 30 seconds, so it cannot process tasking',
@@ -635,7 +627,7 @@ async def perform_load_transforms(data, cb, operation, op, task):
                                                              "extension": cb.registered_payload.payload_type.file_extension,
                                                              "loads": data['params'].split(",")}
                                                         ).encode()
-                                                    ).decode('utf-8'))
+                                                    ).decode('utf-8'), op.username)
             shutil.rmtree(working_path)
             os.remove("./app/payloads/operations/{}/{}".format(operation.name, load_uuid) + ".zip")
             return result
@@ -674,7 +666,7 @@ async def add_command_attack_to_task(task, command):
                     # we need to swap out temp_string's replace_string with task's params value
                     if artifact.replace_string != "":
                         temp_string = temp_string.replace(artifact.replace_string, str(task.params))
-                await db_objects.create(TaskArtifact, task=task, artifact_template=artifact, artifact_instance=temp_string)
+                await db_objects.create(TaskArtifact, task=task, artifact_template=artifact, artifact_instance=temp_string, host=task.callback.host)
             except Exception as e:
                 print(e)
                 pass
@@ -795,7 +787,7 @@ async def get_one_task_and_responses(request, tid, user):
         task = list(task)[0]
     except Exception as e:
         print(str(sys.exc_info()[-1].tb_lineno) + " " + str(e))
-        return json({'status': 'error', 'error': 'failed to find that task'})
+        return json({'status': 'error', 'error': 'failed to find that task: ' + str(tid)})
     try:
         if task.callback.operation.name in user['operations']:
             query = await db_model.response_query()

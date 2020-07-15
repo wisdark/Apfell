@@ -151,7 +151,10 @@ async def get_all_data(operation, pdf, config):
                 pdf.cell(w=35, h=height, txt=callback['host'], border=0, align="C", fill=highlight, ln=0)
                 pdf.cell(w=30, h=height, txt=callback['user'], border=0, align="C", fill=highlight, ln=0)
                 pdf.cell(w=20, h=height, txt=str(callback['pid']), border=0, align="C", fill=highlight, ln=0)
-                command = task.command.cmd + " " + task_json['params'].encode('unicode-escape', errors='backslashreplace').decode('utf-8', errors='backslash-replace')
+                if task.command is not None:
+                    command = task.command.cmd + " " + task_json['params'].encode('unicode-escape', errors='backslashreplace').decode('utf-8', errors='backslash-replace')
+                else:
+                    command = task_json['params'].encode('unicode-escape', errors='backslashreplace').decode('utf-8', errors='backslash-replace')
                 #print(command)
                 if len(command) > 45:
                     pdf.cell(w=0, h=height, txt=command[0:45], border=0, align="L", fill=highlight, ln=1)
@@ -168,7 +171,7 @@ async def get_all_data(operation, pdf, config):
                             pdf.set_fill_color(204, 229, 255)
                             pdf.cell(w=36, h=height, txt=r_json['timestamp'], border=0, align="L", fill=True, ln=1)
                             try:
-                                r_json['response'] = r_json['response'].decode('unicode-escape', errors='backslashreplace')
+                                r_json['response'] = r_json['response'].encode('unicode-escape', errors='backslashreplace').decode('utf-8', errors='backslash-replace')
                             except Exception as e:
                                 print(str(sys.exc_info()[-1].tb_lineno) + " " + str(e))
                                 r_json['response'] = '[[cannot handle non latin-1 character here]]'
@@ -191,7 +194,7 @@ async def get_all_data(operation, pdf, config):
                 pdf.set_fill_color(204, 229, 255)
                 pdf.cell(w=38, h=height, txt=r_json['timestamp'], border=0, align="L", fill=True, ln=1)
                 try:
-                    r_json['response'] = r_json['response'].decode('unicode-escape', errors='backslashreplace')
+                    r_json['response'] =r_json['response'].encode('unicode-escape', errors='backslashreplace').decode('utf-8', errors='backslash-replace')
                 except Exception as e:
                     print(str(sys.exc_info()[-1].tb_lineno) + " " + str(e))
                     r_json['response'] = '[[cannot handle non latin-1 character here]]'
